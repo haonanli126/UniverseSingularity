@@ -32,7 +32,7 @@ data/memory/*.log
 # TODO / 报告输出
 data/todo/*.md
 
-# 其他临时文件
+# 临时文件
 *.tmp
 *.swp
 .DS_Store
