@@ -1,0 +1,39 @@
+# Python 基本忽略
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.log
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# IDE 配置
+.idea/
+.vscode/
+
+# pytest 缓存
+.pytest_cache/
+
+# 本地配置 & 秘钥
+.env
+config/settings.yaml
+
+# 运行时日志（保留目录占位文件）
+logs/
+!logs/.gitkeep
+
+# 记忆 / 日志类数据
+data/memory/*.jsonl
+data/memory/*.log
+
+# TODO / 报告输出
+data/todo/*.md
+
+# 其他临时文件
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db

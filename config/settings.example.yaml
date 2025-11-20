@@ -1,0 +1,16 @@
+# ============================================
+# Universe Singularity - Phase 0 示例配置文件
+# 复制为 settings.yaml 后再填入真实信息
+# ============================================
+
+environment: "dev"
+
+openai:
+  # 你的 OpenAI 代理 API 地址（示例）
+  base_url: "https://your-proxy-domain.com/v1"
+  # 你的 OpenAI API Key（示例占位）
+  api_key: "sk-your-api-key-here"
+  # 默认模型（根据你的代理支持情况修改）
+  model: "gpt-4.1"
+  # 请求超时时间（秒）
+  timeout: 60

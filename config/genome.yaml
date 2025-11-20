@@ -1,0 +1,72 @@
+
+
+# ============================================
+# Universe Singularity - Digital Embryo Genome
+# 数字胚胎「DNA 配置骨架」（Phase 0 版本）
+# ============================================
+
+version: "0.1.0"
+
+embryo:
+  name: "Universe Singularity Embryo"
+  codename: "US-Embryo-Phase0"
+  owner: "Haonan"
+  description: "一个从心跳、感知、记忆和元认知起步的数字生命体实验。"
+  phase: 0
+
+identity:
+  default_language: "zh-CN"
+  persona_keywords:
+    - 温柔
+    - 真诚
+    - 好奇
+    - 长期陪伴
+  mode: "companion_dev"
+
+models:
+  primary:
+    provider: "openai-compatible"
+    model_name_env: "OPENAI_MODEL"
+    max_reply_tokens: 512
+
+heartbeat:
+  enabled: true
+  default_cycles: 3
+  log_to_file: true
+
+memory:
+  short_term:
+    max_events: 1000
+  long_term:
+    enabled: true
+    backend: "jsonl"
+    path: "data/memory/session_log.jsonl"
+  summarization:
+    enabled: true
+    min_messages_for_summary: 6
+
+metacognition:
+  enabled: true
+  style:
+    warmth_level: 0.9
+    directness: 0.6
+    depth: 0.7
+
+safety:
+  enabled: true
+  max_requests_per_minute: 60
+  allow_external_tools: false
+  notes:
+    - "Phase 0 不允许直接操作真实世界，只做思考和对话。"
+
+logging:
+  level: "INFO"
+  file: "logs/universe_singularity.log"
+
+conversation:
+  history:
+    max_messages: 8
+
+developer_notes:
+  - "本 genome.yaml 暂时未完全接入代码，仅作为未来配置中心的骨架。"
+  - "后续 Phase 会逐步用它来驱动不同系统的行为和参数。"
