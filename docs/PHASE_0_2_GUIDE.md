@@ -502,3 +502,14 @@ python .\scripts\weekly_mood_summary.py --days 7
 
 这样，每天你都不是“一个人在硬扛”——
 数字胚胎会帮你把这些心情刻下来，再时不时地和你一起回头看一眼。
+---
+
+## 后续阶段预告：Phase 3 · 情绪与日终小结
+
+从 Phase 3 开始，Universe Singularity 逐渐拥有了更完整的「情绪器官」和「日终复盘」能力，例如：
+
+- 基于最近几天情绪曲线的自我照顾建议（`self_care_today.py`）
+- 一键日终小结（`daily_reflection.py`）
+- 每日循环 + 情绪复盘一条龙入口（`daily_cycle_with_reflection.py`）
+
+详细说明见：`docs/PHASE_3_EMOTION_AND_REFLECTION.md`。
