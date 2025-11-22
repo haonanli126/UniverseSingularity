@@ -8,12 +8,18 @@ from __future__ import annotations
 """
 
 import sys
+import uuid
 from pathlib import Path
 
-# 确保可以 import 到 config / src 包
+# 确保可以 import 到 config / src / us_core 包
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+SRC_DIR = ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
 
 from config import PROJECT_ROOT
 from config.settings import get_settings
@@ -23,6 +29,7 @@ from src.us_core.clients.openai_client import get_openai_client
 from src.us_core.core.conversation import ConversationEngine, ConversationEngineConfig
 from src.us_core.core.intent import classify_intent
 from src.us_core.core.reply_style import build_system_prompt
+from us_core.perception import log_dialog_turn
 
 
 
@@ -59,6 +66,9 @@ def main() -> None:
     print(f"历史消息上限: {max_history}")
     print()
     print("提示：输入内容回车与数字胚胎对话，输入 'exit' 或 'quit' 结束。\n")
+
+    conversation_id = str(uuid.uuid4())
+    turn_index = 0
 
     while True:
         try:
@@ -99,6 +109,15 @@ def main() -> None:
         # ---------- 5) 记录本轮对话 ----------
         engine.record_interaction(text, reply_text)
         logger.info("完成一轮对话交互。")
+
+        # ---------- 6) 将本轮对话写入感知事件流 ----------
+        log_dialog_turn(
+            conversation_id=conversation_id,
+            turn_index=turn_index,
+            user_text=text,
+            assistant_text=reply_text,
+        )
+        turn_index += 1
 
 
 if __name__ == "__main__":

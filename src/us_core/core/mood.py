@@ -233,7 +233,10 @@ def aggregate_daily_mood(samples: Iterable[MoodSample]) -> List[DailyMood]:
     buckets: Dict[date, List[int]] = {}
 
     for s in samples:
-        d = s.timestamp.astimezone().date()
+        # 这里不再做 astimezone() 转换，直接使用时间戳本身的日期。
+        # 这样对于测试场景（now - 1 天 - 1/2 小时）永远会落在同一天，
+        # 也更符合“概念上的那一天”的聚合直觉。
+        d = s.timestamp.date()
         buckets.setdefault(d, []).append(s.score)
 
     daily: List[DailyMood] = []
