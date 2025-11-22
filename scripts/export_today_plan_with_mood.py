@@ -3,13 +3,13 @@ from __future__ import annotations
 r"""
 export_today_plan_with_mood.py
 
-Phase 3-S06：导出「今日计划（情绪感知版）」到 Markdown 文件。
+Phase 3-S06 + S08：导出「今日计划（情绪 + 标签感知版）」到 Markdown 文件。
 
 功能：
   1. 从 data/tasks/tasks.jsonl 读取任务列表
   2. 从长期情绪记忆（perception_long_term.jsonl）构建最近 N 天情绪
   3. 计算 SelfCareSuggestion（rest / balance / focus）
-  4. 根据模式推荐今天要优先做的任务
+  4. 根据模式 + 标签（tags）推荐今天要优先做的任务
   5. 生成一份 Markdown：
        - 情绪概况
        - 今日推荐任务
@@ -36,9 +36,81 @@ from us_core.perception.long_term_view import build_daily_mood_from_memory_file
 from us_core.core.self_care import build_self_care_suggestion
 from us_core.core.task_recommendation import (
     filter_open_tasks,
-    recommend_tasks_for_today,
     recommend_task_count,
 )
+
+
+# 与 today_plan_with_mood 中保持一致的标签加成规则
+TAG_BOOSTS_BY_MODE: dict[str, dict[str, int]] = {
+    "rest": {
+        "self-care": 3,
+        "self_care": 3,
+        "life": 2,
+        "健康": 2,
+    },
+    "balance": {
+        "self-care": 2,
+        "self_care": 2,
+        "life": 2,
+        "universe": 2,
+        "project": 2,
+    },
+    "focus": {
+        "universe": 3,
+        "project": 3,
+        "deep-work": 3,
+        "deep_work": 3,
+        "专注": 2,
+    },
+}
+
+
+def compute_task_score(task: dict, suggestion) -> int:
+    try:
+        base = int(task.get("priority", 0) or 0)
+    except (TypeError, ValueError):
+        base = 0
+
+    if suggestion is None:
+        return base
+
+    mode = (getattr(suggestion, "mode", "") or "").lower()
+    boosts = TAG_BOOSTS_BY_MODE.get(mode, {})
+
+    raw_tags = task.get("tags")
+    if not raw_tags:
+        return base
+
+    if isinstance(raw_tags, (list, tuple)):
+        tags = [str(t).lower() for t in raw_tags]
+    else:
+        tags = [str(raw_tags).lower()]
+
+    bonus = 0
+    for t in tags:
+        if t in boosts:
+            bonus += boosts[t]
+
+    return base + bonus
+
+
+def choose_tasks_for_today(open_tasks: list[dict], suggestion) -> tuple[list[dict], int]:
+    if not open_tasks:
+        return [], 0
+
+    if suggestion is not None:
+        desired = max(1, recommend_task_count(suggestion))
+    else:
+        desired = min(3, len(open_tasks))
+
+    scored: list[tuple[int, int, dict]] = []
+    for idx, task in enumerate(open_tasks):
+        score = compute_task_score(task, suggestion)
+        scored.append((score, idx, task))
+
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    recommended = [t for _, _, t in scored[:desired]]
+    return recommended, desired
 
 
 def export_today_plan_markdown(
@@ -103,9 +175,8 @@ def export_today_plan_markdown(
 
         recommended: list[dict] = []
         desired_count = 0
-        if suggestion is not None and open_tasks:
-            recommended = recommend_tasks_for_today(open_tasks, suggestion)
-            desired_count = recommend_task_count(suggestion)
+        if open_tasks:
+            recommended, desired_count = choose_tasks_for_today(open_tasks, suggestion)
 
         lines.append("")
         if not open_tasks:
@@ -117,6 +188,8 @@ def export_today_plan_markdown(
                     f"- 模式建议任务数：{desired_count} 个；"
                     f"本次推荐任务数：{len(recommended)} 个。"
                 )
+            else:
+                lines.append(f"- 本次推荐任务数：{len(recommended)} 个。")
 
         # 3.1 今日推荐任务
         lines.append("")
@@ -132,9 +205,19 @@ def export_today_plan_markdown(
                 title = t.get("title") or t.get("description") or "(无标题任务)"
                 status = t.get("status") or "open"
                 priority = t.get("priority", 0)
+                tags = t.get("tags") or []
+
+                tag_str = ""
+                if tags:
+                    if isinstance(tags, (list, tuple)):
+                        tag_val = ", ".join(str(x) for x in tags)
+                    else:
+                        tag_val = str(tags)
+                    tag_str = f", tags={tag_val}"
+
                 lines.append(
                     f"- [ ] {title}  "
-                    f"`(id={tid}, status={status}, priority={priority})`"
+                    f"`(id={tid}, status={status}, priority={priority}{tag_str})`"
                 )
 
         # 3.2 其他未完成任务
@@ -151,9 +234,19 @@ def export_today_plan_markdown(
                 title = t.get("title") or t.get("description") or "(无标题任务)"
                 status = t.get("status") or "open"
                 priority = t.get("priority", 0)
+                tags = t.get("tags") or []
+
+                tag_str = ""
+                if tags:
+                    if isinstance(tags, (list, tuple)):
+                        tag_val = ", ".join(str(x) for x in tags)
+                    else:
+                        tag_val = str(tags)
+                    tag_str = f", tags={tag_val}"
+
                 lines.append(
                     f"- [ ] {title}  "
-                    f"`(id={tid}, status={status}, priority={priority})`"
+                    f"`(id={tid}, status={status}, priority={priority}{tag_str})`"
                 )
 
         # 4) 已完成任务 · 今日小胜利
@@ -169,9 +262,19 @@ def export_today_plan_markdown(
                 title = t.get("title") or t.get("description") or "(无标题任务)"
                 status = t.get("status") or "done"
                 priority = t.get("priority", 0)
+                tags = t.get("tags") or []
+
+                tag_str = ""
+                if tags:
+                    if isinstance(tags, (list, tuple)):
+                        tag_val = ", ".join(str(x) for x in tags)
+                    else:
+                        tag_val = str(tags)
+                    tag_str = f", tags={tag_val}"
+
                 lines.append(
                     f"- [x] {title}  "
-                    f"`(id={tid}, status={status}, priority={priority})`"
+                    f"`(id={tid}, status={status}, priority={priority}{tag_str})`"
                 )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -180,7 +283,7 @@ def export_today_plan_markdown(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="导出今日计划（情绪感知版）到 Markdown 文件。",
+        description="导出今日计划（情绪 + 标签感知版）到 Markdown 文件。",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=dedent(
             r"""
@@ -243,7 +346,7 @@ def main(argv: list[str] | None = None) -> None:
 
     print("==============================================")
     print(" Universe Singularity · 今日计划导出（情绪感知版）")
-    print(" Phase 3-S06 - export_today_plan_with_mood")
+    print(" Phase 3-S06/S08 - export_today_plan_with_mood")
     print("==============================================\n")
 
     print(f"[信息] 任务文件: {tasks_path}")

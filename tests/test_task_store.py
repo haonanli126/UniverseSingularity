@@ -16,6 +16,8 @@ from us_core.core.task_store import (
     update_task_title,
     update_task_priority,
     update_task_status,
+    add_tag_to_task,
+    remove_tag_from_task,
 )
 
 
@@ -63,3 +65,38 @@ def test_update_title_priority_status() -> None:
     assert not update_task_title(tasks, "999", "x")
     assert not update_task_priority(tasks, "999", 1)
     assert not update_task_status(tasks, "999", "open")
+
+
+def test_add_and_remove_tags() -> None:
+    tasks = [
+        {"id": "1", "title": "A"},
+        {"id": "2", "title": "B", "tags": ["old", "foo"]},
+    ]
+
+    # 为没有 tags 的任务添加标签
+    ok = add_tag_to_task(tasks, "1", "universe")
+    assert ok
+    assert tasks[0]["tags"] == ["universe"]
+
+    # 再次添加同一个标签，不应重复
+    ok = add_tag_to_task(tasks, "1", "universe")
+    assert ok
+    assert tasks[0]["tags"] == ["universe"]
+
+    # 向已有 tags 的任务添加新标签
+    ok = add_tag_to_task(tasks, "2", "self-care")
+    assert ok
+    assert "self-care" in tasks[1]["tags"]
+
+    # 从任务中移除标签
+    ok = remove_tag_from_task(tasks, "2", "foo")
+    assert ok
+    assert "foo" not in tasks[1]["tags"]
+
+    # 删除不存在的标签也应该是“成功找到任务”，但不会报错
+    ok = remove_tag_from_task(tasks, "2", "not-exist")
+    assert ok
+
+    # 不存在的任务 id 会返回 False
+    assert not add_tag_to_task(tasks, "999", "x")
+    assert not remove_tag_from_task(tasks, "999", "x")

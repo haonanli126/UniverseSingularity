@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 """
-任务存储与基础编辑工具（Phase 3-S05）
+任务存储与基础编辑工具（Phase 3-S07）
 
 作用：
 - 统一读写 data/tasks/tasks.jsonl
 - 提供按 id 查找、更新 title / priority / status 的基础操作
+- 提供为任务添加 / 移除标签（tags）的能力
 """
 
 from pathlib import Path
@@ -124,4 +125,74 @@ def update_task_status(
         return False
 
     tasks[idx]["status"] = str(new_status).strip()
+    return True
+
+
+def add_tag_to_task(
+    tasks: List[JsonDict],
+    task_id: str,
+    tag: str,
+) -> bool:
+    """
+    为任务添加一个标签（tag）：
+
+    - 如果任务不存在 -> 返回 False
+    - 如果任务存在：
+        - 没有 tags 字段      -> 创建为 [tag]
+        - tags 是列表        -> 如果不存在则 append
+        - tags 是其他类型    -> 尝试转为 [str(tags), tag]
+      最终返回 True（表示找到该任务并尝试更新）
+    """
+    idx = find_task_index(tasks, task_id)
+    if idx is None:
+        return False
+
+    t = tasks[idx]
+    raw = t.get("tags")
+
+    normalized: List[str]
+    if raw is None:
+        normalized = []
+    elif isinstance(raw, list):
+        # 将所有元素转成 str，避免意外类型
+        normalized = [str(x) for x in raw]
+    else:
+        # 如果原来是字符串/其他，则统一包进列表
+        normalized = [str(raw)]
+
+    tag_str = str(tag).strip()
+    if tag_str and tag_str not in normalized:
+        normalized.append(tag_str)
+
+    t["tags"] = normalized
+    return True
+
+
+def remove_tag_from_task(
+    tasks: List[JsonDict],
+    task_id: str,
+    tag: str,
+) -> bool:
+    """
+    从任务中移除一个标签（tag）：
+
+    - 如果任务不存在 -> 返回 False
+    - 如果任务存在：
+        - 如果 tags 不是列表，则不做任何修改，但返回 True
+        - 否则过滤掉等于 tag 的元素，并写回列表
+      返回值只表示“是否找到任务”，不保证 tag 一定存在。
+    """
+    idx = find_task_index(tasks, task_id)
+    if idx is None:
+        return False
+
+    t = tasks[idx]
+    raw = t.get("tags")
+    if not isinstance(raw, list):
+        # 没有规范的 tags 列表，不做修改
+        return True
+
+    tag_str = str(tag).strip()
+    filtered = [str(x) for x in raw if str(x) != tag_str]
+    t["tags"] = filtered
     return True

@@ -3,7 +3,7 @@ from __future__ import annotations
 r"""
 tasks_cli.py
 
-Phase 3-S05：任务查看 & 手动编辑 CLI。
+Phase 3-S07：任务查看 & 手动编辑 CLI。
 
 用法示例（在 venv 已激活的前提下）：
 
@@ -21,6 +21,12 @@ Phase 3-S05：任务查看 & 手动编辑 CLI。
 
   5）修改状态（如标记完成）：
       python .\scripts\tasks_cli.py set-status --id <TASK_ID> --status done
+
+  6）为任务添加标签：
+      python .\scripts\tasks_cli.py add-tag --id <TASK_ID> --tag "universe"
+
+  7）从任务移除标签：
+      python .\scripts\tasks_cli.py remove-tag --id <TASK_ID> --tag "universe"
 """
 
 import argparse
@@ -41,6 +47,8 @@ from us_core.core.task_store import (
     update_task_title,
     update_task_priority,
     update_task_status,
+    add_tag_to_task,
+    remove_tag_from_task,
 )
 
 
@@ -89,6 +97,16 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help='新的状态（如 "open" / "in_progress" / "done"）。',
     )
+
+    # add-tag
+    p_add_tag = subparsers.add_parser("add-tag", help="为任务添加一个标签")
+    p_add_tag.add_argument("--id", required=True, help="任务 id。")
+    p_add_tag.add_argument("--tag", required=True, help="要添加的标签。")
+
+    # remove-tag
+    p_remove_tag = subparsers.add_parser("remove-tag", help="从任务移除一个标签")
+    p_remove_tag.add_argument("--id", required=True, help="任务 id。")
+    p_remove_tag.add_argument("--tag", required=True, help="要移除的标签。")
 
     return parser
 
@@ -146,7 +164,7 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     # 下面是需要写回文件的操作
-    if args.command in {"rename", "set-priority", "set-status"} and not tasks:
+    if args.command in {"rename", "set-priority", "set-status", "add-tag", "remove-tag"} and not tasks:
         print(f"任务文件为空或不存在：{tasks_path}")
         return
 
@@ -175,6 +193,22 @@ def main(argv: list[str] | None = None) -> None:
             return
         changed = True
         print(f"[成功] 已将任务 {args.id} 的状态更新为：{args.status}")
+
+    elif args.command == "add-tag":
+        ok = add_tag_to_task(tasks, args.id, args.tag)
+        if not ok:
+            print(f"[失败] 未找到 id={args.id} 的任务。")
+            return
+        changed = True
+        print(f"[成功] 已为任务 {args.id} 添加标签：{args.tag}")
+
+    elif args.command == "remove-tag":
+        ok = remove_tag_from_task(tasks, args.id, args.tag)
+        if not ok:
+            print(f"[失败] 未找到 id={args.id} 的任务。")
+            return
+        changed = True
+        print(f"[成功] 已尝试从任务 {args.id} 移除标签：{args.tag}")
 
     if changed:
         save_tasks(tasks_path, tasks)
