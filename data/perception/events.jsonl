@@ -1,0 +1,6 @@
+{"id": "2aed6cf9-b7ae-48ce-8274-846b2ba696d1", "timestamp": "2025-11-20T16:09:04.710073+00:00", "channel": "cli_checkin", "content": "今天我很开心", "tags": ["checkin", "mood"], "metadata": {"question": "today_feeling"}}
+{"id": "e7c54e4d-48d0-41cf-a697-bed70d255276", "timestamp": "2025-11-20T16:09:08.477305+00:00", "channel": "cli_checkin", "content": "q", "tags": ["checkin", "detail"], "metadata": {"question": "today_details"}}
+{"id": "ecffc4ae-da05-498d-920b-4c401d35c067", "timestamp": "2025-11-20T16:10:28.555819+00:00", "channel": "cli_checkin", "content": "q", "tags": ["checkin", "detail"], "metadata": {"question": "today_details"}}
+{"id": "1d1b4e8a-9d14-436f-b9fb-058b15fc5caa", "timestamp": "2025-11-20T16:15:55.769617+00:00", "channel": "cli_checkin", "content": "cd D:\\UniverseSingularity", "tags": ["checkin", "detail"], "metadata": {"question": "today_details"}}
+{"id": "b760ecf4-b05a-4107-9832-28472fed8089", "timestamp": "2025-11-20T16:15:55.774617+00:00", "channel": "cli_checkin", "content": "Get-Content .\\data\\perception\\events.jsonl", "tags": ["checkin", "detail"], "metadata": {"question": "today_details"}}
+{"id": "9cab6d4b-29ea-404f-85bd-d9f84684f198", "timestamp": "2025-11-20T16:39:34.316315+00:00", "channel": "cli_checkin", "content": "我今天很开心", "tags": ["checkin", "mood"], "metadata": {"question": "today_feeling"}}
