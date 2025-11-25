@@ -1,296 +1,283 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import IntEnum
-from typing import Any, Dict, Optional, Tuple, Union
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
-from ..systems.environment.interface import (
+from us_core.systems.environment.interface import (
     Environment,
-    GridAction,
     STATE_SIZE,
+    NUM_ACTIONS,
+    GridAction,
 )
 
+try:
+    import pygame  # type: ignore
+except ImportError:  # pragma: no cover - 测试环境不强制依赖 pygame
+    pygame = None  # type: ignore
 
-class CellType(IntEnum):
-    EMPTY = 0
-    WALL = 1
-    KEY = 2
-    DOOR_CLOSED = 3
-    DOOR_OPEN = 4
-    GOAL = 5
+
+CellPos = Tuple[int, int]
+
+
+# 网格编码约定：
+# 0 = 空地
+# 1 = 墙壁
+# 2 = 钥匙
+# 3 = 门
+# 4 = 目标
+# 5 = 角色（没有钥匙）
+# 6 = 角色（拿着钥匙）
+EMPTY = 0
+WALL = 1
+KEY = 2
+DOOR = 3
+GOAL = 4
 
 
 @dataclass
 class SimpleGridWorld(Environment):
-    """一个简单的 10x10 网格世界环境。
-
-    - 外围一圈是墙；
-    - 内部有：钥匙、门、目标点；
-    - agent 可以移动、捡钥匙、开门，到达目标即完成。
-    """
+    """10x10 网格世界环境（逻辑 + 渲染）。"""
 
     width: int = 10
     height: int = 10
-    max_steps: int = 200
 
-    def __post_init__(self) -> None:
-        if self.width * self.height != STATE_SIZE:
-            raise ValueError("SimpleGridWorld must be 10x10 for STATE_SIZE=100")
+    # 内部状态
+    grid: np.ndarray = field(init=False)
+    agent_pos: CellPos = field(init=False)
+    _start_pos: CellPos = field(init=False)
+    _goal_pos: CellPos = field(init=False)
+    _key_pos: CellPos = field(init=False)
+    _door_pos: CellPos = field(init=False)
+    _has_key: bool = field(default=False, init=False)
 
-        self._build_default_map()
-        self.reset()
+    # pygame 相关
+    _screen: Any = field(default=None, init=False)
+    _clock: Any = field(default=None, init=False)
+    _cell_size: int = 40
 
-    # --- 环境构建 & 重置 ---
+    @property
+    def state_size(self) -> int:
+        return STATE_SIZE
 
-    def _build_default_map(self) -> None:
-        """构建静态地图布局。"""
-        grid = np.zeros((self.height, self.width), dtype=np.int8)
+    @property
+    def action_size(self) -> int:
+        return NUM_ACTIONS
 
-        # 外围一圈墙
-        grid[0, :] = CellType.WALL
-        grid[-1, :] = CellType.WALL
-        grid[:, 0] = CellType.WALL
-        grid[:, -1] = CellType.WALL
-
-        # 关键元素位置
-        self._start_pos: Tuple[int, int] = (1, 1)   # 起点
-        self._key_pos: Tuple[int, int] = (1, 3)     # 钥匙
-        self._door_pos: Tuple[int, int] = (5, 5)    # 门
-        self._goal_pos: Tuple[int, int] = (8, 8)    # 目标
-
-        grid[self._key_pos] = CellType.KEY
-        grid[self._door_pos] = CellType.DOOR_CLOSED
-        grid[self._goal_pos] = CellType.GOAL
-
-        self._base_grid = grid
+    # =====================
+    # 环境核心逻辑
+    # =====================
 
     def reset(self) -> np.ndarray:
-        """重置环境到初始状态。"""
-        self._grid = self._base_grid.copy()
-        self.agent_pos: Tuple[int, int] = self._start_pos
-        self.has_key: bool = False
-        self.door_open: bool = False
-        self.step_count: int = 0
-        self.done: bool = False
-        return self._get_state()
+        """重置环境，并返回 100 维状态向量。"""
+        self._init_grid()
+        self._start_pos = (1, 1)
+        self.agent_pos = self._start_pos
 
-    # --- 内部辅助方法 ---
+        # 固定放置 key / door / goal
+        self._key_pos = (1, self.width - 2)
+        self._door_pos = (self.height // 2, self.width // 2)
+        self._goal_pos = (self.height - 2, self.width - 2)
 
-    def _in_bounds(self, pos: Tuple[int, int]) -> bool:
-        y, x = pos
-        return 0 <= y < self.height and 0 <= x < self.width
+        self.grid[self._key_pos] = KEY
+        self.grid[self._door_pos] = DOOR
+        self.grid[self._goal_pos] = GOAL
 
-    def _is_blocked(self, pos: Tuple[int, int]) -> bool:
-        """是否被墙或关闭的门阻挡。"""
-        if not self._in_bounds(pos):
-            return True
-        cell = self._grid[pos]
-        if cell == CellType.WALL:
-            return True
-        if (pos == self._door_pos) and not self.door_open:
-            return True
-        return False
+        self._has_key = False
+        return self._encode_state()
 
-    def _adjacent_to(self, target: Tuple[int, int]) -> bool:
-        ay, ax = self.agent_pos
-        ty, tx = target
-        return abs(ay - ty) + abs(ax - tx) == 1
+    def _init_grid(self) -> None:
+        """初始化 10x10 网格和墙壁。"""
+        g = np.zeros((self.height, self.width), dtype=np.int8)
+        # 边界墙
+        g[0, :] = WALL
+        g[-1, :] = WALL
+        g[:, 0] = WALL
+        g[:, -1] = WALL
 
-    def _encode_grid_with_agent(self) -> np.ndarray:
-        """将静态地图 + agent 状态编码成 10x10 整型网格。"""
-        grid = self._grid.copy()
+        # 简单内部障碍
+        g[3, 2:8] = WALL
+        g[6, 1:7] = WALL
 
-        # 门状态
-        if self.door_open:
-            grid[self._door_pos] = CellType.DOOR_OPEN
-        else:
-            grid[self._door_pos] = CellType.DOOR_CLOSED
+        self.grid = g
 
-        # 钥匙若已拾取则不再显示
-        if self.has_key and grid[self._key_pos] == CellType.KEY:
-            grid[self._key_pos] = CellType.EMPTY
+    def step(self, action: int | GridAction) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
+        """执行一步动作，返回 (next_state, reward, done, info)。"""
+        if isinstance(action, int):
+            action = GridAction(action)
 
-        # agent 覆盖当前位置
-        ay, ax = self.agent_pos
-        grid[ay, ax] = 6  # 6 单独表示 agent
-
-        return grid
-
-    def _get_state(self) -> np.ndarray:
-        """返回展平后的 100 维状态向量。"""
-        grid = self._encode_grid_with_agent()
-        flat = grid.astype(np.float32).flatten()
-        assert flat.shape[0] == STATE_SIZE
-        return flat
-
-    # --- 主交互 API ---
-
-    def step(
-        self,
-        action: Union[int, GridAction],
-    ) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
-        """执行一步动作。"""
-
-        if isinstance(action, GridAction):
-            a = int(action)
-        else:
-            a = int(action)
-
+        reward = -0.01  # 每步轻微惩罚，鼓励尽快到达目标
+        done = False
         info: Dict[str, Any] = {}
 
-        # 若已经结束，保持状态不变
-        if getattr(self, "done", False):
-            return self._get_state(), 0.0, True, {"already_done": True}
+        new_pos = self._next_position(action)
+        cur_y, cur_x = self.agent_pos
+        new_y, new_x = new_pos
 
-        self.step_count += 1
-        reward = -0.01  # 小的时间步惩罚，鼓励尽快完成
+        # 撞墙
+        if self.grid[new_y, new_x] == WALL:
+            reward -= 0.1
+            info["collision"] = True
+            # 不移动
+            return self._encode_state(), reward, done, info
 
-        # 处理动作
-        if a in (GridAction.UP, GridAction.DOWN, GridAction.LEFT, GridAction.RIGHT):
-            dy, dx = 0, 0
-            if a == GridAction.UP:
-                dy = -1
-            elif a == GridAction.DOWN:
-                dy = 1
-            elif a == GridAction.LEFT:
-                dx = -1
-            elif a == GridAction.RIGHT:
-                dx = 1
-
-            ny = self.agent_pos[0] + dy
-            nx = self.agent_pos[1] + dx
-            new_pos = (ny, nx)
-
-            if self._is_blocked(new_pos):
-                # 撞墙 / 撞门，轻微惩罚
-                reward -= 0.04
-                info["collision"] = True
+        # 门逻辑
+        if (new_y, new_x) == self._door_pos:
+            if not self._has_key:
+                # 没有钥匙，门挡住
+                reward -= 0.1
+                info["door_blocked"] = True
+                return self._encode_state(), reward, done, info
             else:
-                self.agent_pos = new_pos
-
-        elif a == GridAction.PICK_KEY:
-            # 若站在钥匙格子上且未持有，拾取成功
-            if (not self.has_key) and (self.agent_pos == self._key_pos):
-                self.has_key = True
-                reward += 0.5
-                self._grid[self._key_pos] = CellType.EMPTY
-                info["picked_key"] = True
-            else:
-                reward -= 0.02
-                info["picked_key"] = False
-
-        elif a == GridAction.OPEN_DOOR:
-            if self.has_key and (not self.door_open) and self._adjacent_to(self._door_pos):
-                self.door_open = True
-                self._grid[self._door_pos] = CellType.DOOR_OPEN
-                reward += 0.5
+                # 有钥匙，开门并通过
                 info["door_opened"] = True
-            else:
-                reward -= 0.02
-                info["door_opened"] = False
-        else:
-            # 未定义动作
-            reward -= 0.05
-            info["invalid_action"] = True
+                # 门变成空地
+                self.grid[self._door_pos] = EMPTY
 
-        # 到达目标
-        if self.agent_pos == self._goal_pos:
+        # 移动成功
+        self.agent_pos = (new_y, new_x)
+
+        # 拾取钥匙
+        if (new_y, new_x) == self._key_pos and not self._has_key:
+            self._has_key = True
+            self.grid[self._key_pos] = EMPTY
+            reward += 0.2
+            info["picked_key"] = True
+
+        # 到达终点
+        if (new_y, new_x) == self._goal_pos:
             reward += 1.0
-            self.done = True
+            done = True
             info["reached_goal"] = True
 
-        # 超过最大步数自动结束
-        if self.step_count >= self.max_steps and not getattr(self, "done", False):
-            self.done = True
-            info["truncated"] = True
+        return self._encode_state(), reward, done, info
 
-        return self._get_state(), reward, self.done, info
+    def _next_position(self, action: GridAction) -> CellPos:
+        y, x = self.agent_pos
+        if action == GridAction.UP:
+            return y - 1, x
+        if action == GridAction.DOWN:
+            return y + 1, x
+        if action == GridAction.LEFT:
+            return y, x - 1
+        if action == GridAction.RIGHT:
+            return y, x + 1
+        # PICK_KEY / OPEN_DOOR 对位置不产生直接影响
+        return y, x
 
-    # --- 渲染 ---
+    def _encode_state(self) -> np.ndarray:
+        """将当前网格 + 角色状态编码为 100 维向量。"""
+        g = self.grid.copy()
 
-    def render(self, mode: str = "ascii") -> None:
+        ay, ax = self.agent_pos
+        if self._has_key:
+            g[ay, ax] = 6  # 角色 + 钥匙
+        else:
+            g[ay, ax] = 5  # 角色
+
+        flat = g.astype(np.float32).reshape(-1)
+        assert flat.shape == (STATE_SIZE,)
+        # 测试中只要求 0~6 之间
+        return flat
+
+    # =====================
+    # 渲染接口
+    # =====================
+
+    def render(self, mode: str = "ascii") -> Optional[str]:
         """渲染当前状态。
 
-        - mode="ascii": 在终端用字符渲染；
-        - mode="pygame": 尝试用 pygame 渲染（懒加载，若未安装则报友好提示）。
+        mode="ascii"  -> 返回 ASCII 字符串（也会 print）
+        mode="human"  -> 使用 pygame 在窗口中渲染（如果可用）
         """
         if mode == "ascii":
-            self._render_ascii()
-        elif mode == "pygame":
+            ascii_map = self._render_ascii()
+            print(ascii_map)
+            return ascii_map
+
+        if mode == "human":
             self._render_pygame()
-        else:
-            raise ValueError(f"Unsupported render mode: {mode!r}")
+            return None
 
-    def _render_ascii(self) -> None:
-        grid = self._encode_grid_with_agent()
-        char_map = {
-            CellType.EMPTY: " . ",
-            CellType.WALL: "###",
-            CellType.KEY: " K ",
-            CellType.DOOR_CLOSED: "[ ]",
-            CellType.DOOR_OPEN: " | ",
-            CellType.GOAL: " G ",
-        }
+        # 其他模式暂不支持
+        return None
 
+    def _render_ascii(self) -> str:
+        """生成 ASCII 地图字符串。"""
+        lines: list[str] = []
         for y in range(self.height):
-            row_str = ""
+            row_chars: list[str] = []
             for x in range(self.width):
-                if (y, x) == self.agent_pos:
-                    row_str += " A "
-                else:
-                    val = grid[y, x]
-                    if val == 6:
-                        row_str += " A "
-                    else:
-                        row_str += char_map.get(CellType(val), " ? ")
-            print(row_str)
-        print()
+                c = self._cell_to_char((y, x))
+                row_chars.append(c)
+            lines.append("".join(row_chars))
+        return "\n".join(lines)
+
+    def _cell_to_char(self, pos: CellPos) -> str:
+        y, x = pos
+        if pos == self.agent_pos:
+            return "A"  # Agent
+
+        val = self.grid[y, x]
+        if val == WALL:
+            return "#"
+        if val == KEY:
+            return "K"
+        if val == DOOR:
+            return "D"
+        if val == GOAL:
+            return "G"
+        return "."  # EMPTY / 其他
 
     def _render_pygame(self) -> None:
-        """使用 pygame 渲染（若未安装 pygame，则抛出 RuntimeError）。"""
-        try:
-            import os
-            import pygame  # type: ignore
-        except ImportError as exc:  # pragma: no cover - 依赖外部库
-            raise RuntimeError("pygame is not installed") from exc
+        """使用 pygame 渲染网格（仅在本地手动调试时使用）。"""
+        if pygame is None:  # pragma: no cover - 测试环境不走这里
+            raise RuntimeError("pygame 未安装，无法使用 human 渲染模式。请运行 `pip install pygame`。")
 
-        # 适配无窗口环境
-        if "SDL_VIDEODRIVER" not in os.environ:
-            os.environ["SDL_VIDEODRIVER"] = "dummy"
+        if self._screen is None:
+            pygame.init()
+            size = (self.width * self._cell_size, self.height * self._cell_size)
+            self._screen = pygame.display.set_mode(size)
+            pygame.display.set_caption("UniverseSingularity - SimpleGridWorld")
+            self._clock = pygame.time.Clock()
 
-        cell_size = 32
-        width_px = self.width * cell_size
-        height_px = self.height * cell_size
-
-        pygame.init()
-        screen = pygame.display.set_mode((width_px, height_px))
-        pygame.display.set_caption("SimpleGridWorld")
-
-        grid = self._encode_grid_with_agent()
-
-        colors = {
-            CellType.EMPTY: (30, 30, 30),
-            CellType.WALL: (80, 80, 80),
-            CellType.KEY: (255, 215, 0),
-            CellType.DOOR_CLOSED: (160, 82, 45),
-            CellType.DOOR_OPEN: (205, 133, 63),
-            CellType.GOAL: (50, 205, 50),
-            "agent": (70, 130, 180),
-        }
+        # 只负责画画，不处理事件（事件交给外部脚本）
+        self._screen.fill((0, 0, 0))
 
         for y in range(self.height):
             for x in range(self.width):
-                rect = pygame.Rect(x * cell_size, y * cell_size, cell_size, cell_size)
+                rect = pygame.Rect(
+                    x * self._cell_size,
+                    y * self._cell_size,
+                    self._cell_size,
+                    self._cell_size,
+                )
+
+                color = (30, 30, 30)  # 空地
+                val = self.grid[y, x]
                 if (y, x) == self.agent_pos:
-                    color = colors["agent"]
-                else:
-                    val = grid[y, x]
-                    if val == 6:
-                        color = colors["agent"]
-                    else:
-                        color = colors.get(CellType(val), (255, 0, 0))
-                pygame.draw.rect(screen, color, rect)
+                    color = (200, 200, 50)  # Agent
+                elif val == WALL:
+                    color = (80, 80, 80)
+                elif val == KEY:
+                    color = (50, 200, 50)
+                elif val == DOOR:
+                    color = (150, 75, 0)
+                elif val == GOAL:
+                    color = (200, 50, 50)
+
+                pygame.draw.rect(self._screen, color, rect)
+                pygame.draw.rect(self._screen, (40, 40, 40), rect, width=1)
 
         pygame.display.flip()
+        if self._clock is not None:
+            self._clock.tick(30)
+
+    def close(self) -> None:
+        """关闭 pygame 资源（如果已打开）。"""
+        if pygame is not None and self._screen is not None:  # pragma: no cover
+            pygame.display.quit()
+            pygame.quit()
+            self._screen = None
+            self._clock = None
